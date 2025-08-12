@@ -3,7 +3,7 @@ warnings.filterwarnings('ignore')
 from ultralytics import YOLO
 
 if __name__ == '__main__':
-    model = YOLO('/content/ultralytics/ultralytics/cfg/models/11/yolo11s-segoper.yaml')
+    model = YOLO('ultralytics/cfg/models/11/yolo11.yaml')
     #model.load('yolov8n.pt') # loading pretrain weights
     model.train(data='/content/datasets/breast_tumor04/data.yaml',
                 cache=False,

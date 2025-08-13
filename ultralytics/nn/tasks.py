@@ -359,14 +359,24 @@ class DetectionModel(BaseModel):
         if isinstance(m, Detect):  # includes all Detect subclasses like Segment, Pose, OBB, YOLOEDetect, YOLOESegment
             s = 256  # 2x min stride
             m.inplace = self.inplace
-
+            
+            # FIX: Use smart_inference_mode to avoid tracking gradients during this forward pass
+            @smart_inference_mode()
             def _forward(x):
                 """Perform a forward pass through the model, handling different Detect subclass types accordingly."""
                 if self.end2end:
                     return self.forward(x)["one2many"]
                 return self.forward(x)[0] if isinstance(m, (Segment, YOLOESegment, Pose, OBB)) else self.forward(x)
 
-            m.stride = torch.tensor([s / x.shape[-2] for x in _forward(torch.zeros(1, ch, s, s))])  # forward
+            # Calculate stride on a dummy tensor
+            new_stride = torch.tensor([s / x.shape[-2] for x in _forward(torch.zeros(1, ch, s, s))])
+
+            # FIX: Register the calculated stride as a buffer
+            # This ensures it's part of the model's state and synchronized by DDP
+            if hasattr(m, 'stride'):
+                delattr(m, 'stride')
+            m.register_buffer('stride', new_stride)
+
             self.stride = m.stride
             m.bias_init()  # only run once
         else:

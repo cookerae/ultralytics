@@ -7,7 +7,7 @@ if __name__ == '__main__':
     model = YOLO('/kaggle/working/ultralytics/ultralytics/cfg/models/11/yolo11-segoper.yaml')
     #model.load('yolov8n.pt') # loading pretrain weights
     model.train(#data='/root/.cache/kagglehub/datasets/monaerkiconbinker/tumor-yolo/versions/2/breast_tumor04/data.yaml',
-                data='/kaggle/input/tumor-yolo',
+                data='/kaggle/input/tumor-yolo/breast_tumor04/data.yaml',
                 cache=False,
                 imgsz=640,
                 epochs=500,

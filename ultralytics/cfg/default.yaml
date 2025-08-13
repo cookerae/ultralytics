@@ -100,8 +100,8 @@ cls: 0.5 # (float) cls loss gain (scale with pixels)
 dfl: 1.5 # (float) dfl loss gain
 pose: 12.0 # (float) pose loss gain
 kobj: 1.0 # (float) keypoint obj loss gain
-seg: 8.5 # (float) segment loss gain
-dice_weight: 5.0 # (float) dice loss weight for segmentation (BCE + dice_weight * DICE)
+#seg: 8.5 # (float) segment loss gain
+#dice_weight: 5.0 # (float) dice loss weight for segmentation (BCE + dice_weight * DICE)
 nbs: 64 # (int) nominal batch size
 hsv_h: 0.015 # (float) image HSV-Hue augmentation (fraction)
 hsv_s: 0.7 # (float) image HSV-Saturation augmentation (fraction)

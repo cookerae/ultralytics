@@ -2,7 +2,6 @@
 
 from typing import Any, Dict, List, Tuple
 
-import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -190,228 +189,33 @@ class KeypointLoss(nn.Module):
         # e = d / (2 * (area * self.sigmas) ** 2 + 1e-9)  # from formula
         e = d / ((2 * self.sigmas).pow(2) * (area + 1e-9) * 2)  # from cocoeval
         return (kpt_loss_factor.view(-1, 1) * ((1 - torch.exp(-e)) * kpt_mask)).mean()
-    
-
-def bbox_mpdiou(box1, box2, xywh=True, mpdiou_hw=2.0, eps=1e-7):
-    """
-    Calculate Minimum Point Distance IoU (MPDIoU) between boxes.
-    
-    MPDIoU improves bounding box regression by minimizing the distance between
-    corresponding points of predicted and ground truth boxes.
-    
-    Args:
-        box1 (torch.Tensor): First set of boxes, shape (N, 4)
-        box2 (torch.Tensor): Second set of boxes, shape (N, 4) or (1, 4)
-        xywh (bool): If True, boxes are in (x_center, y_center, width, height) format
-        mpdiou_hw (float): Height-width factor for MPDIoU calculation
-        eps (float): Small value to avoid division by zero
-        
-    Returns:
-        torch.Tensor: MPDIoU values, shape (N,)
-    """
-    
-    # Convert to xyxy format if needed
-    if xywh:
-        # Convert from (x_center, y_center, width, height) to (x1, y1, x2, y2)
-        (x1, y1, w1, h1), (x2, y2, w2, h2) = box1.chunk(4, -1), box2.chunk(4, -1)
-        w1_, h1_, w2_, h2_ = w1 / 2, h1 / 2, w2 / 2, h2 / 2
-        b1_x1, b1_x2, b1_y1, b1_y2 = x1 - w1_, x1 + w1_, y1 - h1_, y1 + h1_
-        b2_x1, b2_x2, b2_y1, b2_y2 = x2 - w2_, x2 + w2_, y2 - h2_, y2 + h2_
-    else:
-        # Already in xyxy format
-        b1_x1, b1_y1, b1_x2, b1_y2 = box1.chunk(4, -1)
-        b2_x1, b2_y1, b2_x2, b2_y2 = box2.chunk(4, -1)
-        w1, h1 = b1_x2 - b1_x1, b1_y2 - b1_y1 + eps
-        w2, h2 = b2_x2 - b2_x1, b2_y2 - b2_y1 + eps
-    
-    # Calculate intersection
-    inter = (b1_x2.minimum(b2_x2) - b1_x1.maximum(b2_x1)).clamp_(0) * \
-            (b1_y2.minimum(b2_y2) - b1_y1.maximum(b2_y1)).clamp_(0)
-    
-    # Calculate union
-    union = w1 * h1 + w2 * h2 - inter + eps
-    
-    # Calculate IoU
-    iou = inter / union
-    
-    # Calculate center points
-    b1_cx = (b1_x1 + b1_x2) / 2
-    b1_cy = (b1_y1 + b1_y2) / 2
-    b2_cx = (b2_x1 + b2_x2) / 2
-    b2_cy = (b2_y1 + b2_y2) / 2
-    
-    # Calculate the smallest enclosing box
-    c_x1 = torch.min(b1_x1, b2_x1)
-    c_y1 = torch.min(b1_y1, b2_y1)
-    c_x2 = torch.max(b1_x2, b2_x2)
-    c_y2 = torch.max(b1_y2, b2_y2)
-    
-    # Diagonal length of the smallest enclosing box
-    c_w = c_x2 - c_x1
-    c_h = c_y2 - c_y1
-    c2 = c_w ** 2 + c_h ** 2 + eps
-    
-    # Center distance
-    rho2 = ((b2_cx - b1_cx) ** 2 + (b2_cy - b1_cy) ** 2)
-    
-    # MPDIoU distance term calculation
-    # Calculate minimum point distances
-    d1 = ((b1_x1 - b2_x1) ** 2 + (b1_y1 - b2_y1) ** 2)  # Top-left corners
-    d2 = ((b1_x2 - b2_x2) ** 2 + (b1_y2 - b2_y2) ** 2)  # Bottom-right corners
-    
-    # MPDIoU penalty term
-    mpdiou_distance = (d1 + d2) / (2 * c2)
-    
-    # Width-height consistency term
-    v = (4 / math.pi ** 2) * torch.pow(torch.atan(w2 / (h2 + eps)) - torch.atan(w1 / (h1 + eps)), 2)
-    
-    with torch.no_grad():
-        alpha = v / (1 - iou + v + eps)
-    
-    # Combine all terms for MPDIoU
-    mpdiou = iou - rho2 / c2 - alpha * v - mpdiou_hw * mpdiou_distance
-    
-    return mpdiou
-
-
-class MPDIoULoss(nn.Module):
-    """
-    MPDIoU Loss for bounding box regression.
-    
-    This loss function extends DIoU by adding a minimum point distance term
-    to improve localization accuracy.
-    """
-    
-    def __init__(self, reduction='none', mpdiou_hw=2.0):
-        """
-        Initialize MPDIoU Loss.
-        
-        Args:
-            reduction (str): Specifies the reduction to apply to the output
-            mpdiou_hw (float): Weight factor for the MPDIoU distance term
-        """
-        super().__init__()
-        self.reduction = reduction
-        self.mpdiou_hw = mpdiou_hw
-    
-    def forward(self, pred, target):
-        """
-        Calculate MPDIoU loss.
-        
-        Args:
-            pred (torch.Tensor): Predicted bounding boxes
-            target (torch.Tensor): Ground truth bounding boxes
-            
-        Returns:
-            torch.Tensor: MPDIoU loss
-        """
-        mpdiou = bbox_mpdiou(pred, target, xywh=False, mpdiou_hw=self.mpdiou_hw)
-        loss = 1.0 - mpdiou
-        
-        if self.reduction == 'mean':
-            return loss.mean()
-        elif self.reduction == 'sum':
-            return loss.sum()
-        else:
-            return loss
-
-
-class BboxLossWithMPDIoU(nn.Module):
-    """Enhanced BboxLoss class with MPDIoU support for YOLOv8."""
-    
-    def __init__(self, reg_max: int = 16, use_mpdiou: bool = True, mpdiou_hw: float = 2.0):
-        """
-        Initialize the BboxLoss module with MPDIoU option.
-        
-        Args:
-            reg_max (int): Maximum value of the regression range
-            use_mpdiou (bool): Whether to use MPDIoU instead of CIoU
-            mpdiou_hw (float): Weight factor for MPDIoU distance term
-        """
-        super().__init__()
-        self.dfl_loss = DFLoss(reg_max) if reg_max > 1 else None
-        self.use_mpdiou = use_mpdiou
-        self.mpdiou_hw = mpdiou_hw
-    
-    def forward(
-        self,
-        pred_dist: torch.Tensor,
-        pred_bboxes: torch.Tensor,
-        anchor_points: torch.Tensor,
-        target_bboxes: torch.Tensor,
-        target_scores: torch.Tensor,
-        target_scores_sum: torch.Tensor,
-        fg_mask: torch.Tensor,
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
-        """Compute IoU and DFL losses for bounding boxes."""
-        
-        weight = target_scores.sum(-1)[fg_mask].unsqueeze(-1)
-        
-        if self.use_mpdiou:
-            # Use MPDIoU loss
-            mpdiou = bbox_mpdiou(
-                pred_bboxes[fg_mask], 
-                target_bboxes[fg_mask], 
-                xywh=False, 
-                mpdiou_hw=self.mpdiou_hw
-            )
-            loss_iou = ((1.0 - mpdiou) * weight).sum() / target_scores_sum
-        else:
-            # Use original CIoU loss
-            from ultralytics.utils.metrics import bbox_iou
-            iou = bbox_iou(pred_bboxes[fg_mask], target_bboxes[fg_mask], xywh=False, CIoU=True)
-            loss_iou = ((1.0 - iou) * weight).sum() / target_scores_sum
-        
-        # DFL loss
-        if self.dfl_loss:
-            from ultralytics.utils.tal import bbox2dist
-            target_ltrb = bbox2dist(anchor_points, target_bboxes, self.dfl_loss.reg_max - 1)
-            loss_dfl = self.dfl_loss(pred_dist[fg_mask].view(-1, self.dfl_loss.reg_max), target_ltrb[fg_mask]) * weight
-            loss_dfl = loss_dfl.sum() / target_scores_sum
-        else:
-            loss_dfl = torch.tensor(0.0).to(pred_dist.device)
-        
-        return loss_iou, loss_dfl
-    
-
 
 
 class v8DetectionLoss:
-    """YOLOv8 Detection Loss with MPDIoU support."""
-    
-    def __init__(self, model, tal_topk: int = 10, use_mpdiou: bool = True, mpdiou_hw: float = 2.0):
-        """
-        Initialize v8DetectionLoss with MPDIoU option.
-        
-        Args:
-            model: YOLOv8 model (must be de-paralleled)
-            tal_topk (int): Top-k value for task-aligned assignment
-            use_mpdiou (bool): Whether to use MPDIoU loss
-            mpdiou_hw (float): Weight factor for MPDIoU distance term
-        """
-        from ultralytics.utils.tal import TaskAlignedAssigner, make_anchors
-        
-        device = next(model.parameters()).device
+    """Criterion class for computing training losses for YOLOv8 object detection."""
+
+    def __init__(self, model, tal_topk: int = 10):  # model must be de-paralleled
+        """Initialize v8DetectionLoss with model parameters and task-aligned assignment settings."""
+        device = next(model.parameters()).device  # get model device
         h = model.args  # hyperparameters
+
         m = model.model[-1]  # Detect() module
-        
         self.bce = nn.BCEWithLogitsLoss(reduction="none")
         self.hyp = h
-        self.stride = m.stride
-        self.nc = m.nc
+        self.stride = m.stride  # model strides
+        self.nc = m.nc  # number of classes
         self.no = m.nc + m.reg_max * 4
         self.reg_max = m.reg_max
         self.device = device
+
         self.use_dfl = m.reg_max > 1
-        
+
         self.assigner = TaskAlignedAssigner(topk=tal_topk, num_classes=self.nc, alpha=0.5, beta=6.0)
-        self.bbox_loss = BboxLossWithMPDIoU(m.reg_max, use_mpdiou=use_mpdiou, mpdiou_hw=mpdiou_hw).to(device)
+        self.bbox_loss = BboxLoss(m.reg_max).to(device)
         self.proj = torch.arange(m.reg_max, dtype=torch.float, device=device)
-    
+
     def preprocess(self, targets: torch.Tensor, batch_size: int, scale_tensor: torch.Tensor) -> torch.Tensor:
         """Preprocess targets by converting to tensor format and scaling coordinates."""
-        from ultralytics.utils.ops import xywh2xyxy
-        
         nl, ne = targets.shape
         if nl == 0:
             out = torch.zeros(batch_size, 0, ne - 1, device=self.device)
@@ -426,44 +230,45 @@ class v8DetectionLoss:
                     out[j, :n] = targets[matches, 1:]
             out[..., 1:5] = xywh2xyxy(out[..., 1:5].mul_(scale_tensor))
         return out
-    
+
     def bbox_decode(self, anchor_points: torch.Tensor, pred_dist: torch.Tensor) -> torch.Tensor:
         """Decode predicted object bounding box coordinates from anchor points and distribution."""
-        from ultralytics.utils.tal import dist2bbox
-        
         if self.use_dfl:
-            b, a, c = pred_dist.shape
+            b, a, c = pred_dist.shape  # batch, anchors, channels
             pred_dist = pred_dist.view(b, a, 4, c // 4).softmax(3).matmul(self.proj.type(pred_dist.dtype))
+            # pred_dist = pred_dist.view(b, a, c // 4, 4).transpose(2,3).softmax(3).matmul(self.proj.type(pred_dist.dtype))
+            # pred_dist = (pred_dist.view(b, a, c // 4, 4).softmax(2) * self.proj.type(pred_dist.dtype).view(1, 1, -1, 1)).sum(2)
         return dist2bbox(pred_dist, anchor_points, xywh=False)
-    
-    def __call__(self, preds, batch):
+
+    def __call__(self, preds: Any, batch: Dict[str, torch.Tensor]) -> Tuple[torch.Tensor, torch.Tensor]:
         """Calculate the sum of the loss for box, cls and dfl multiplied by batch size."""
-        from ultralytics.utils.tal import make_anchors
-        
         loss = torch.zeros(3, device=self.device)  # box, cls, dfl
         feats = preds[1] if isinstance(preds, tuple) else preds
         pred_distri, pred_scores = torch.cat([xi.view(feats[0].shape[0], self.no, -1) for xi in feats], 2).split(
             (self.reg_max * 4, self.nc), 1
         )
-        
+
         pred_scores = pred_scores.permute(0, 2, 1).contiguous()
         pred_distri = pred_distri.permute(0, 2, 1).contiguous()
-        
+
         dtype = pred_scores.dtype
         batch_size = pred_scores.shape[0]
-        imgsz = torch.tensor(feats[0].shape[2:], device=self.device, dtype=dtype) * self.stride[0]
+        imgsz = torch.tensor(feats[0].shape[2:], device=self.device, dtype=dtype) * self.stride[0]  # image size (h,w)
         anchor_points, stride_tensor = make_anchors(feats, self.stride, 0.5)
-        
+
         # Targets
         targets = torch.cat((batch["batch_idx"].view(-1, 1), batch["cls"].view(-1, 1), batch["bboxes"]), 1)
         targets = self.preprocess(targets.to(self.device), batch_size, scale_tensor=imgsz[[1, 0, 1, 0]])
-        gt_labels, gt_bboxes = targets.split((1, 4), 2)
+        gt_labels, gt_bboxes = targets.split((1, 4), 2)  # cls, xyxy
         mask_gt = gt_bboxes.sum(2, keepdim=True).gt_(0.0)
-        
+
         # Pboxes
-        pred_bboxes = self.bbox_decode(anchor_points, pred_distri)
-        
+        pred_bboxes = self.bbox_decode(anchor_points, pred_distri)  # xyxy, (b, h*w, 4)
+        # dfl_conf = pred_distri.view(batch_size, -1, 4, self.reg_max).detach().softmax(-1)
+        # dfl_conf = (dfl_conf.amax(-1).mean(-1) + dfl_conf.amax(-1).amin(-1)) / 2
+
         _, target_bboxes, target_scores, fg_mask, _ = self.assigner(
+            # pred_scores.detach().sigmoid() * 0.8 + dfl_conf.unsqueeze(-1) * 0.2,
             pred_scores.detach().sigmoid(),
             (pred_bboxes.detach() * stride_tensor).type(gt_bboxes.dtype),
             anchor_points * stride_tensor,
@@ -471,25 +276,25 @@ class v8DetectionLoss:
             gt_bboxes,
             mask_gt,
         )
-        
+
         target_scores_sum = max(target_scores.sum(), 1)
-        
+
         # Cls loss
-        loss[1] = self.bce(pred_scores, target_scores.to(dtype)).sum() / target_scores_sum
-        
-        # Bbox loss with MPDIoU
+        # loss[1] = self.varifocal_loss(pred_scores, target_scores, target_labels) / target_scores_sum  # VFL way
+        loss[1] = self.bce(pred_scores, target_scores.to(dtype)).sum() / target_scores_sum  # BCE
+
+        # Bbox loss
         if fg_mask.sum():
             target_bboxes /= stride_tensor
             loss[0], loss[2] = self.bbox_loss(
-                pred_distri, pred_bboxes, anchor_points, target_bboxes, 
-                target_scores, target_scores_sum, fg_mask
+                pred_distri, pred_bboxes, anchor_points, target_bboxes, target_scores, target_scores_sum, fg_mask
             )
-        
+
         loss[0] *= self.hyp.box  # box gain
         loss[1] *= self.hyp.cls  # cls gain
         loss[2] *= self.hyp.dfl  # dfl gain
-        
-        return loss * batch_size, loss.detach()
+
+        return loss * batch_size, loss.detach()  # loss(box, cls, dfl)
 
 
 class v8SegmentationLoss(v8DetectionLoss):

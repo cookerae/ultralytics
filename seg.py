@@ -13,7 +13,7 @@ if __name__ == '__main__':
                 epochs=500,
                 batch= 32,
                 close_mosaic=0,
-                device='0,1',
+                device='1',
                 optimizer='AdamW', # using BGD
                 lr0= 0.001,  # 较小的初始学习率
                 momentum= 0.9,

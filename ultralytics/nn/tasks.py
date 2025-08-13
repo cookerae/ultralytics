@@ -1464,7 +1464,6 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
             BiFPN_Concat3,
             BiFPN_Add2,
             BiFPN_Add3,
-            SPDConv,
         }
     )
     for i, (f, n, m, args) in enumerate(d["backbone"] + d["head"]):  # from, number, module, args

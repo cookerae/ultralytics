@@ -3,9 +3,11 @@ warnings.filterwarnings('ignore')
 from ultralytics import YOLO
 
 if __name__ == '__main__':
-    model = YOLO('/root/ultralytics/ultralytics/cfg/models/11/yolo11s-segoper.yaml')
+    #model = YOLO('/root/ultralytics/ultralytics/cfg/models/11/yolo11s-segoper.yaml')
+    model = YOLO('/kaggle/working/ultralytics/seg.py')
     #model.load('yolov8n.pt') # loading pretrain weights
-    model.train(data='/root/.cache/kagglehub/datasets/monaerkiconbinker/tumor-yolo/versions/2/breast_tumor04/data.yaml',
+    model.train(#data='/root/.cache/kagglehub/datasets/monaerkiconbinker/tumor-yolo/versions/2/breast_tumor04/data.yaml',
+                data='/kaggle/input/tumor-yolo',
                 cache=False,
                 imgsz=640,
                 epochs=500,

@@ -44,7 +44,7 @@ head:
 
   # Bottom-up path
   - [-1, 1, Conv, [256, 3, 2]] # 20 - downsample P3
-  - [[-1, 10, 14], 1, BiFPN_Concat3, [1]] # 21 - cat P3 downsampled + P4
+  - [[-1, 14], 1, BiFPN_Concat2, [1]] # 21 - cat P3 downsampled + P4
   - [-1, 2, A2C2f, [512, False, -1]] # 11 # 22 - process fused P4 (P4/16-medium)
 
   - [-1, 1, Conv, [512, 3, 2]] # 23 - downsample P4

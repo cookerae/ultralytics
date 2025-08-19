@@ -17,8 +17,12 @@ if __name__ == '__main__':
                 close_mosaic=0,
                 device='0,1',
                 optimizer='AdamW', # using BGD
-                lr0= 0.001,  # 较小的初始学习率
-                momentum= 0.9,
+                lr0= 0.0005, # 较小的初始学习率
+                lrf=0.01,
+                cos_lr=True,
+                #momentum= 0.9,
+                betas: [0.9, 0.999]  # 这是AdamW的"动量"参数
+                weight_decay=0.01,
                 project='runs/train',
                 name='exp',
                 patience=150,

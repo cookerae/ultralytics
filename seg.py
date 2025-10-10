@@ -12,9 +12,9 @@ if __name__ == '__main__':
                 #data='/content/datasets/breast_tumor04/data.yaml'
                 cache=False,
                 imgsz=640,
-                epochs=300,
+                epochs=150,
                 batch= 32,
-                close_mosaic=0,
+                close_mosaic=150,
                 device='0,1',
                 optimizer='AdamW', # using BGD
                 lr0= 0.0005, # 较小的初始学习率

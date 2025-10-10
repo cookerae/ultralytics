@@ -8,7 +8,7 @@ if __name__ == '__main__':
     #modal = YOLO('/content/ultralytics/ultralytics/cfg/models/11/yolo11-oper.yaml')
     #model.load('/content/drive/MyDrive/KaggleNotebookOutput/ultralytics/runs/train/exp/weights/best.pt') # loading pretrain weights
     model.train(#data='/root/.cache/kagglehub/datasets/monaerkiconbinker/tumor-yolo/versions/2/breast_tumor04/data.yaml',
-                data='/kaggle/input/tumor-yolo/breast_tumor04/data.yaml',
+                data='/kaggle/input/tumor-yolo/breast_tumor05/data.yaml',
                 #data='/content/datasets/breast_tumor04/data.yaml'
                 cache=False,
                 imgsz=640,

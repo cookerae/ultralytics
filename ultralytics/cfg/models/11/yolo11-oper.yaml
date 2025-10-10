@@ -53,4 +53,4 @@ head:
   - [[-1, 13], 1, BiFPN_Concat2, [1]] # 24 - cat P4 downsampled + P5
   - [-1, 3, C3k2, [1024, True]] # 25 - process fused P5 (P5/32-large)
 
-  - [[19, 22, 25], 1, Detect, [nc]] # 26 - Detect(P3, P4, P5)
+  - [[19, 22, 25], 1, Segment, [nc, 32, 256]] # 26 - Detect(P3, P4, P5)

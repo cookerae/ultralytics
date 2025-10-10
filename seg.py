@@ -12,16 +12,16 @@ if __name__ == '__main__':
                 #data='/content/datasets/breast_tumor04/data.yaml'
                 cache=False,
                 imgsz=640,
-                epochs=600,
+                epochs=300,
                 batch= 32,
-                close_mosaic=250,
+                close_mosaic=0,
                 device='0,1',
                 optimizer='AdamW', # using BGD
                 lr0= 0.0005, # 较小的初始学习率
                 lrf=0.01,
                 cos_lr=True,
-                #momentum= 0.9,
-                betas: [0.9, 0.999]  # 这是AdamW的"动量"参数
+                momentum= 0.9,
+                #betas: [0.9, 0.999]  # 这是AdamW的"动量"参数
                 weight_decay=0.01,
                 project='runs/train',
                 name='exp',

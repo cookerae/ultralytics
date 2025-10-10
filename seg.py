@@ -15,7 +15,7 @@ if __name__ == '__main__':
                 epochs=300,
                 batch= 16,
                 close_mosaic=0,
-                device='0',
+                device='0,1',
                 optimizer='AdamW', # using BGD
                 lr0= 0.0005, # 较小的初始学习率
                 lrf=0.01,

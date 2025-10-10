@@ -116,10 +116,7 @@ class BaseValidator:
         self.confusion_matrix = None
         self.nc = None
         self.iouv = None
-        self.distance_stats = []
-        self.run_identifier = None
         self.jdict = None
-        self.calculate_distance = True  # Always calculate euclidean distance
         self.speed = {"preprocess": 0.0, "inference": 0.0, "loss": 0.0, "postprocess": 0.0}
 
         self.save_dir = save_dir or get_save_dir(self.args)
@@ -145,10 +142,6 @@ class BaseValidator:
         """
         self.training = trainer is not None
         augment = self.args.augment and (not self.training)
-        if self.training:
-            self.run_identifier = trainer.epoch
-        else:
-            self.run_identifier = self.save_dir.name
         if self.training:
             self.device = trainer.device
             self.data = trainer.data
@@ -229,80 +222,6 @@ class BaseValidator:
             with dt[3]:
                 preds = self.postprocess(preds)
 
-            # Euclidean distance calculation - now runs for both training and validation
-            if self.calculate_distance:
-                from ultralytics.utils.ops import xywh2xyxy
-                from ultralytics.utils.metrics import box_iou
-
-                for si, pred in enumerate(preds):
-                    labels = batch['batch_idx'] == si
-                    tbox_normalized = batch['bboxes'][labels]
-                    tcls = batch['cls'][labels].squeeze(-1)
-                    image_path = batch['im_file'][si]
-
-                    # --- THE FIX IS HERE: Use original image shape, not padded batch shape ---
-                    orig_h, orig_w = batch['ori_shape'][si]
-
-                    if len(pred) == 0 or len(tbox_normalized) == 0:
-                        continue
-
-                    pred_boxes_pixels_xyxy = pred[:, :4]
-                    pred_cls = pred[:, 5]
-
-                    # Convert GT boxes to pixel coordinates using the ORIGINAL image dimensions
-                    tbox_pixels_xyxy = xywh2xyxy(tbox_normalized) * torch.tensor([orig_w, orig_h, orig_w, orig_h], device=self.device)
-
-                    iou_matrix = box_iou(tbox_pixels_xyxy, pred_boxes_pixels_xyxy)
-
-                    for ti, gt_box_normalized in enumerate(tbox_normalized):
-                        gt_cls_val = tcls[ti]
-
-                        same_class_preds_mask = (pred_cls == gt_cls_val)
-                        if not same_class_preds_mask.any():
-                            continue
-
-                        class_specific_iou_row = iou_matrix[ti][same_class_preds_mask]
-                        if len(class_specific_iou_row) == 0: continue
-
-                        best_match_iou, best_match_local_idx = class_specific_iou_row.max(0)
-
-                        # Calculate euclidean distance for all matches, regardless of IoU threshold
-                        # This ensures we get distance measurements even for poor matches
-                        if best_match_iou > 0.0:  # Changed from 0.5 to 0.0 to include all matches
-                            original_indices = torch.where(same_class_preds_mask)[0]
-                            best_match_idx = original_indices[best_match_local_idx]
-
-                            matched_pred_box_pixels_xyxy = pred_boxes_pixels_xyxy[best_match_idx]
-
-                            # --- PIXEL-BASED DISTANCE (Now using original dimensions) ---
-                            gt_cx_pixel = gt_box_normalized[0].item() * orig_w
-                            gt_cy_pixel = gt_box_normalized[1].item() * orig_h
-
-                            pred_x1, pred_y1, pred_x2, pred_y2 = matched_pred_box_pixels_xyxy
-                            pred_cx_pixel = ((pred_x1 + pred_x2) / 2).item()
-                            pred_cy_pixel = ((pred_y1 + pred_y2) / 2).item()
-                            pixel_distance = ((gt_cx_pixel - pred_cx_pixel)**2 + (gt_cy_pixel - pred_cy_pixel)**2)**0.5
-
-                            # --- NORMALIZED DISTANCE (Now using original dimensions for conversion) ---
-                            gt_cx_norm = gt_box_normalized[0].item()
-                            gt_cy_norm = gt_box_normalized[1].item()
-                            pred_cx_norm = pred_cx_pixel / orig_w
-                            pred_cy_norm = pred_cy_pixel / orig_h
-                            normalized_distance = ((gt_cx_norm - pred_cx_norm)**2 + (gt_cy_norm - pred_cy_norm)**2)**0.5
-
-                            # --- APPEND ALL METRICS (Now logging the correct image_wh) ---
-                            self.distance_stats.append({
-                                'run_id': self.run_identifier,
-                                'image_path': image_path,
-                                'gt_class': int(tcls[ti].item()),
-                                'image_wh': (orig_w, orig_h), # <-- Now correct
-                                'iou': round(best_match_iou.item(), 4),
-                                'distance_pixels': round(pixel_distance, 2),
-                                'normalized_distance': round(normalized_distance, 5),
-                                'gt_center_xy_pixels': (round(gt_cx_pixel, 2), round(gt_cy_pixel, 2)),
-                                'pred_center_xy_pixels': (round(pred_cx_pixel, 2), round(pred_cy_pixel, 2)),
-                            })
-
             self.update_metrics(preds, batch)
             if self.args.plots and batch_i < 3:
                 self.plot_val_samples(batch, batch_i)
@@ -315,37 +234,6 @@ class BaseValidator:
         self.finalize_metrics()
         self.print_results()
         self.run_callbacks("on_val_end")
-        # Save euclidean distance statistics if calculation was enabled
-        if self.calculate_distance and self.distance_stats:
-            import json
-            import csv
-
-            # 1. Save the FULL, detailed statistics to a JSON file
-            json_path = self.save_dir / 'euclidean_distance_stats.json'
-            with open(json_path, 'w') as f:
-                json.dump(self.distance_stats, f, indent=4)
-
-            # 2. Create a new, FOCUSED CSV file with the run identifier
-            csv_path_focused = self.save_dir / 'euclidean_distances_only.csv'
-
-            # Create a new list containing dictionaries with only the desired keys
-            distance_only_data = [
-                {
-                    'run_id': stat['run_id'], # <-- ADD THIS
-                    'distance_pixels': stat['distance_pixels'],
-                    'normalized_distance': stat['normalized_distance']
-                }
-                for stat in self.distance_stats
-            ]
-
-            # Write this new, focused list to the CSV file
-            with open(csv_path_focused, 'w', newline='') as f:
-                # Explicitly define the fieldnames (column headers)
-                fieldnames = ['run_id', 'distance_pixels', 'normalized_distance'] # <-- ADD THIS
-                writer = csv.DictWriter(f, fieldnames=fieldnames)
-                writer.writeheader()
-                writer.writerows(distance_only_data)
-
         if self.training:
             model.float()
             results = {**stats, **trainer.label_loss_items(self.loss.cpu() / len(self.dataloader), prefix="val")}
@@ -470,11 +358,6 @@ class BaseValidator:
     def on_plot(self, name, data=None):
         """Register plots (e.g. to be consumed in callbacks)."""
         self.plots[Path(name)] = {"data": data, "timestamp": time.time()}
-
-    def set_distance_calculation(self, enabled=True):
-        """Enable or disable euclidean distance calculation."""
-        self.calculate_distance = enabled
-        LOGGER.info(f"Euclidean distance calculation {'enabled' if enabled else 'disabled'}")
 
     # TODO: may need to put these following functions into callback
     def plot_val_samples(self, batch, ni):

@@ -16,7 +16,7 @@ if __name__ == '__main__':
                 batch= 32,
                 close_mosaic=0,
                 device='0,1',
-                optimizer='SGD', # using BGD
+                optimizer='AdamW', # using BGD
                 lr0= 0.001, # 较小的初始学习率
                 lrf=0.01,
                 cos_lr=True,

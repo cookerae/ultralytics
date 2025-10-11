@@ -12,7 +12,7 @@ if __name__ == '__main__':
                 #data='/content/datasets/breast_tumor04/data.yaml'
                 cache=False,
                 imgsz=640,
-                epochs=300,
+                epochs=500,
                 batch= 32,
                 close_mosaic=0,
                 device='0,1',

@@ -5,8 +5,8 @@ from ultralytics import YOLO
 if __name__ == '__main__':
     #model = YOLO('/root/ultralytics/ultralytics/cfg/models/11/yolo11s-oper.yaml')
     #model = YOLO('/kaggle/working/ultralytics/ultralytics/cfg/models/11/yolo11s-oper.yaml')
-    #modal = YOLO('/content/ultralytics/ultralytics/cfg/models/11/yolo11-oper.yaml')
-    modal = YOLO('/kaggle/input/tumor-yolo/finally-best.pt')
+    #model = YOLO('/content/ultralytics/ultralytics/cfg/models/11/yolo11-oper.yaml')
+    model = YOLO('/kaggle/input/tumor-yolo/finally-best.pt')
     #model.load('/content/drive/MyDrive/KaggleNotebookOutput/ultralytics/runs/train/exp/weights/best.pt') # loading pretrain weights
     #model.load('/kaggle/input/tumor-yolo/finally-best.pt') # loading pretrain weights
     model.train(#data='/root/.cache/kagglehub/datasets/monaerkiconbinker/tumor-yolo/versions/2/breast_tumor04/data.yaml',

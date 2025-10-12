@@ -4,20 +4,21 @@ from ultralytics import YOLO
 
 if __name__ == '__main__':
     #model = YOLO('/root/ultralytics/ultralytics/cfg/models/11/yolo11s-oper.yaml')
-    model = YOLO('/kaggle/working/ultralytics/ultralytics/cfg/models/11/yolo11s-oper.yaml')
+    #model = YOLO('/kaggle/working/ultralytics/ultralytics/cfg/models/11/yolo11s-oper.yaml')
     #modal = YOLO('/content/ultralytics/ultralytics/cfg/models/11/yolo11-oper.yaml')
     #model.load('/content/drive/MyDrive/KaggleNotebookOutput/ultralytics/runs/train/exp/weights/best.pt') # loading pretrain weights
+    model.load('/kaggle/input/tumor-yolo/finally-best.pt') # loading pretrain weights
     model.train(#data='/root/.cache/kagglehub/datasets/monaerkiconbinker/tumor-yolo/versions/2/breast_tumor04/data.yaml',
                 data='/kaggle/input/tumor-yolo/breast_tumor05/breast_tumor05/data.yaml',
                 #data='/content/datasets/breast_tumor04/data.yaml'
                 cache=False,
                 imgsz=640,
-                epochs=500,
+                epochs=200,
                 batch= 32,
-                close_mosaic=0,
+                close_mosaic=200,
                 device='0,1',
                 optimizer='AdamW', # using BGD
-                lr0= 0.001, # 较小的初始学习率
+                lr0= 0.0005, # 较小的初始学习率
                 lrf=0.01,
                 cos_lr=True,
                 momentum= 0.9,
@@ -25,7 +26,7 @@ if __name__ == '__main__':
                 weight_decay=0.01,
                 project='runs/train',
                 name='exp',
-                patience=150,
+                patience=50,
                 workers=0,
                 val=True,
                 amp=False,

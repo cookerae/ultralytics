@@ -5,7 +5,7 @@ from ultralytics import YOLO
 if __name__ == '__main__':
     #model = YOLO('/root/ultralytics/ultralytics/cfg/models/11/yolo11s-oper.yaml')
     #model = YOLO('/kaggle/working/ultralytics/ultralytics/cfg/models/11/yolo11s-oper.yaml')
-    model = YOLO('/kaggle/working/ultralytics/ultralytics/cfg/models/11/yolo11s-seg.yaml'）
+    model = YOLO('/kaggle/working/ultralytics/ultralytics/cfg/models/11/yolo11s-seg.yaml')
     #model = YOLO('/content/ultralytics/ultralytics/cfg/models/11/yolo11-oper.yaml')
     #model = YOLO('/kaggle/input/tumor-yolo/finally-best.pt')
     #model.load('/content/drive/MyDrive/KaggleNotebookOutput/ultralytics/runs/train/exp/weights/best.pt') # loading pretrain weights

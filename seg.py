@@ -5,10 +5,10 @@ from ultralytics import YOLO
 if __name__ == '__main__':
     #model = YOLO('/root/ultralytics/ultralytics/cfg/models/11/yolo11s-oper.yaml')
     #model = YOLO('/kaggle/working/ultralytics/ultralytics/cfg/models/11/yolo11s-oper.yaml')
-    #model = YOLO('/kaggle/working/ultralytics/ultralytics/cfg/models/11/yolo11s-seg.yaml')
+    model = YOLO('/kaggle/working/ultralytics/ultralytics/cfg/models/11/yolo12s-seg.yaml')
     #model = YOLO('/content/ultralytics/ultralytics/cfg/models/11/yolo11-oper.yaml')
     #model = YOLO('/kaggle/input/tumor-yolo/finally-best.pt')
-    model = YOLO('/kaggle/input/tumor-yolo/tumor-11.pt')
+    #model = YOLO('/kaggle/input/tumor-yolo/tumor-11.pt')
     #model.load('/content/drive/MyDrive/KaggleNotebookOutput/ultralytics/runs/train/exp/weights/best.pt') # loading pretrain weights
     #model.load('/kaggle/input/tumor-yolo/finally-best.pt') # loading pretrain weights
     model.train(#data='/root/.cache/kagglehub/datasets/monaerkiconbinker/tumor-yolo/versions/2/breast_tumor04/data.yaml',
@@ -16,12 +16,12 @@ if __name__ == '__main__':
                 #data='/content/datasets/breast_tumor04/data.yaml'
                 cache=False,
                 imgsz=640,
-                epochs=300,
+                epochs=500,
                 batch= 32,
-                close_mosaic=300,
+                close_mosaic=0,
                 device='0,1',
                 optimizer='AdamW', # using BGD
-                lr0= 0.0005, # 较小的初始学习率
+                lr0= 0.001, # 较小的初始学习率
                 lrf=0.01,
                 cos_lr=True,
                 momentum= 0.9,
@@ -29,7 +29,7 @@ if __name__ == '__main__':
                 weight_decay=0.01,
                 project='runs/train',
                 name='exp',
-                patience=50,
+                patience=150,
                 workers=0,
                 val=True,
                 amp=False,

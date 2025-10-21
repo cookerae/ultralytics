@@ -17,7 +17,7 @@ if __name__ == '__main__':
                 cache=False,
                 imgsz=640,
                 epochs=500,
-                batch= 32,
+                batch= 16,
                 close_mosaic=0,
                 device='0,1',
                 optimizer='AdamW', # using BGD

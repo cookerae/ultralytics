@@ -5,7 +5,7 @@ from ultralytics import YOLO
 if __name__ == '__main__':
     #model = YOLO('/root/ultralytics/ultralytics/cfg/models/11/yolo11s-oper.yaml')
     #model = YOLO('/kaggle/working/ultralytics/ultralytics/cfg/models/11/yolo11s-oper.yaml')
-    model = YOLO('/kaggle/working/ultralytics/ultralytics/cfg/models/11/yolo11s-oper02.yaml')
+    model = YOLO('/kaggle/working/ultralytics/ultralytics/cfg/models/11/yolo11s-oper03.yaml')
     #model = YOLO('/content/ultralytics/ultralytics/cfg/models/11/yolo11-oper.yaml')
     #model = YOLO('/kaggle/input/tumor-yolo/finally-best.pt')
     #model = YOLO('/kaggle/input/tumor-yolo/tumor-12.pt')
@@ -17,7 +17,7 @@ if __name__ == '__main__':
                 cache=False,
                 imgsz=640,
                 epochs=500,
-                batch= 16,
+                batch= 32,
                 close_mosaic=0,
                 device='0,1',
                 optimizer='AdamW', # using BGD

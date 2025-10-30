@@ -16,12 +16,12 @@ if __name__ == '__main__':
                 #data='/content/datasets/breast_tumor04/data.yaml'
                 cache=False,
                 imgsz=640,
-                epochs=500,
+                epochs=300,
                 batch= 32,
-                close_mosaic=0,
+                close_mosaic=300,
                 device='0,1',
                 optimizer='AdamW', # using BGD
-                lr0= 0.001, # 较小的初始学习率
+                lr0= 0.0005, # 较小的初始学习率
                 lrf=0.01,
                 cos_lr=True,
                 momentum= 0.9,
@@ -29,7 +29,7 @@ if __name__ == '__main__':
                 weight_decay=0.01,
                 project='runs/train',
                 name='exp',
-                patience=150,
+                patience=50,
                 workers=0,
                 val=True,
                 amp=False,

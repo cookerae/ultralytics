@@ -3,7 +3,7 @@ warnings.filterwarnings('ignore')
 from ultralytics import YOLO
 
 if __name__ == '__main__':
-    model = YOLO('/kaggle/working/ultralytics/ultralytics/cfg/models/12/yolo12n-seg.yaml')
+    model = YOLO('/kaggle/working/ultralytics/ultralytics/cfg/models/12/yolo12s-obb.yaml')
     #model.load('/content/drive/MyDrive/KaggleNotebookOutput/ultralytics/runs/train/exp/weights/best.pt') # loading pretrain weights
     #model.load('/kaggle/input/tumor-yolo/finally-best.pt') # loading pretrain weights
     model.train(#data='/root/.cache/kagglehub/datasets/monaerkiconbinker/tumor-yolo/versions/2/breast_tumor04/data.yaml',
@@ -17,7 +17,7 @@ if __name__ == '__main__':
                 device='0,1',
                 project='runs/train',
                 name='exp',
-                patience=50,
+                patience=100,
                 workers=0,
                 val=True,
                 amp=False,

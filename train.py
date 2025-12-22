@@ -7,17 +7,17 @@ if __name__ == '__main__':
     #model.load('/content/drive/MyDrive/KaggleNotebookOutput/ultralytics/runs/train/exp/weights/best.pt') # loading pretrain weights
     #model.load('/kaggle/input/tumor-yolo/finally-best.pt') # loading pretrain weights
     model.train(#data='/root/.cache/kagglehub/datasets/monaerkiconbinker/tumor-yolo/versions/2/breast_tumor04/data.yaml',
-                data='/kaggle/input/US-needle/needle01/data.yaml',
+                data='/kaggle/input/US-needle/augmented/data.yaml''
                 #data='/content/datasets/breast_tumor04/data.yaml'
                 cache=False,
                 imgsz=512,
-                epochs=600,
+                epochs=450,
                 batch= 64,
-                close_mosaic=500,
+                close_mosaic=380,
                 device='0,1',
                 project='runs/train',
                 name='exp',
-                patience=100,
+                patience=75,
                 workers=0,
                 val=True,
                 amp=False,

@@ -1525,8 +1525,26 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
             args = [ch[f]]
         elif m is Concat:
             c2 = sum(ch[x] for x in f)
-        elif m in frozenset({BiFPN_Concat2, BiFPN_Concat3}):
-            c2 = sum(ch[x] for x in f)
+        elif m in {BiFPN_Add2, BiFPN_Add3, BiFPN_Concat2, BiFPN_Concat3}:
+            # Calculate input channels (sum of all inputs)
+            c1 = sum(ch[x] for x in f)
+            
+            # LOGIC FOR ADD (Has internal Conv, so output size = args[0])
+            if m in {BiFPN_Add2, BiFPN_Add3}:
+                c2 = args[0]
+                if c2 != nc: # Scaling logic
+                    c2 = make_divisible(min(c2, max_channels) * width, 8)
+                # Update args: [c1, c2, *remaining_args]
+                args = [c1, c2, *args[1:]]
+            
+            # LOGIC FOR CONCAT (No internal Conv, so output size = sum of inputs)
+            else:
+                c2 = c1 
+                # Update args: Inject c1, c2 before the dimension arg
+                # Assuming YAML args are [dimension] or empty
+                args = [c1, c2, *args]
+        # elif m in frozenset({BiFPN_Concat2, BiFPN_Concat3}):
+        #     c2 = sum(ch[x] for x in f)
         elif m in frozenset(
             {Detect, WorldDetect, YOLOEDetect, Segment, YOLOESegment, Pose, OBB, ImagePoolingAttn, v10Detect, DynamicHeadDetect}
         ):

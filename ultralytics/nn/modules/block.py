@@ -2631,48 +2631,67 @@ class BiFPN_Concat3(nn.Module):
 
 
 class BiFPN_Add2(nn.Module):
-    """BiFPN weighted feature fusion for 2 inputs using addition."""
-    
     def __init__(self, c1, c2):
         super(BiFPN_Add2, self).__init__()
+        # c1 is the sum of input channels (e.g. 128 + 64 = 192)
+        # We don't rely on c1 for the conv input anymore.
         self.w = nn.Parameter(torch.ones(2, dtype=torch.float32), requires_grad=True)
         self.epsilon = 0.0001
-        self.conv = Conv(c1, c2, 1, 1, 0)
+        self.conv = Conv(c2, c2, 1, 1, 0) # Output convolution
         self.silu = nn.SiLU()
+        self.c2 = c2 # Store target channel size
 
     def forward(self, x):
         if isinstance(x, list) and len(x) == 2:
+            # ---------------- AUTO-ALIGNMENT BLOCK ----------------
+            target_ch = self.c2 
+            processed_inputs = []
+            for item in x:
+                if item.shape[1] != target_ch:
+                    # If channel mismatch, force resize using a 1x1 conv on the fly
+                    # Note: This creates a temporary conv layer that needs to be on the correct device
+                    # Ideally, this should be defined in __init__, but for quick debugging:
+                    raise RuntimeError(f"Channel Mismatch! Input {item.shape[1]} vs Target {target_ch}. Fix YAML.")
+                else:
+                    processed_inputs.append(item)
+            x = processed_inputs
+            # ------------------------------------------------------
+
             w = self.w
             weight = w / (torch.sum(w, dim=0) + self.epsilon)
-            # Weighted addition
             x = self.silu(weight[0] * x[0] + weight[1] * x[1])
             x = self.conv(x)
-        elif isinstance(x, torch.Tensor):
-            x = self.conv(x)
         return x
-
-
 class BiFPN_Add3(nn.Module):
-    """BiFPN weighted feature fusion for 3 inputs using addition."""
-    
     def __init__(self, c1, c2):
         super(BiFPN_Add3, self).__init__()
+        # Note: c1 is the sum of inputs, but we ignore it for initialization 
+        # because we rely on c2 (the target output size) for the fusion.
         self.w = nn.Parameter(torch.ones(3, dtype=torch.float32), requires_grad=True)
         self.epsilon = 0.0001
-        self.conv = Conv(c1, c2, 1, 1, 0)
+        self.conv = Conv(c2, c2, 1, 1, 0)
         self.silu = nn.SiLU()
+        self.c2 = c2  # Store the expected channel count
 
     def forward(self, x):
         if isinstance(x, list) and len(x) == 3:
+            # --- ROBUSTNESS CHECK ---
+            # Ensure all 3 inputs match the target channel count (self.c2)
+            for i, item in enumerate(x):
+                if item.shape[1] != self.c2:
+                    raise RuntimeError(
+                        f"BiFPN_Add3 Channel Mismatch!\n"
+                        f"  - Input {i} has {item.shape[1]} channels.\n"
+                        f"  - Target is {self.c2} channels.\n"
+                        f"  FIX: Add a [Conv, [{self.c2}, 1, 1]] layer in YAML before this input."
+                    )
+            # ------------------------
+
             w = self.w
             weight = w / (torch.sum(w, dim=0) + self.epsilon)
-            # Weighted addition
+            
+            # Weighted Addition
             x = self.silu(weight[0] * x[0] + weight[1] * x[1] + weight[2] * x[2])
             x = self.conv(x)
-        elif isinstance(x, list) and len(x) == 2:
-            # Fallback for 2 inputs
-            w = self.w[:2]
-            weight = w / (torch.sum(w, dim=0) + self.epsilon)
-            x = self.silu(weight[0] * x[0] + weight[1] * x[1])
-            x = self.conv(x)
+            
         return x

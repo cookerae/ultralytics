@@ -33,26 +33,45 @@ backbone:
 
 # YOLO11n head
 head:
-  - [4, 1, Conv, [256]]  # 11 - P3 feature processing
-  - [6, 1, Conv, [256]]  # 12 - P4 feature processing
-  - [10, 1, Conv, [256]] # 13 - P5 feature processing
+  # ---------------- PRE-PROCESSING ----------------
+  # Force all backbone levels to Base 256 (Actual 64ch at scale 'n')
+  - [4, 1, Conv, [256, 1, 1]]  # 11 - P3_in (64 ch)
+  - [6, 1, Conv, [256, 1, 1]]  # 12 - P4_in (64 ch)
+  - [10, 1, Conv, [256, 1, 1]] # 13 - P5_in (64 ch)
 
-  - [-1, 1, nn.Upsample, [None, 2, "nearest"]] 
-  - [[-1, 12], 1, BiFPN_Concat2, [1]] # cat backbone P4
-  - [-1, 2, C3k2, [512, False]] # 16
-  - [-1, 1, CBAM, [512]]
+  # ---------------- TOP-DOWN PATH ----------------
+  # Fuse P5 -> P4
+  - [-1, 1, nn.Upsample, [None, 2, "nearest"]] # 14 (P5_up)
+  - [[-1, 12], 1, BiFPN_Add2, [256]] # 15 (Fuse P5_up + P4_in)
+  - [-1, 2, C3k2, [256, False]] # 16 (Process Features)
+  - [-1, 1, CBAM, [256]] # 17 (Attention on P4 Top-Down) 🟢
 
-  - [-1, 1, nn.Upsample, [None, 2, "nearest"]] 
-  - [[-1, 11], 1, BiFPN_Concat2, [1]] # cat backbone P3
-  - [-1, 2, C3k2, [256, False]] # 20 (P3/8-small)
-  - [-1, 1, CBAM, [256]]
+  # Fuse P4 -> P3
+  - [-1, 1, nn.Upsample, [None, 2, "nearest"]] # 18 (P4_up)
+  - [[-1, 11], 1, BiFPN_Add2, [256]] # 19 (Fuse P4_up + P3_in)
+  - [-1, 2, C3k2, [256, False]] # 20 (Process P3)
+  - [-1, 1, CBAM, [256]] # 21 (Attention on P3 Output) 🟢 -> TO DETECT
 
-  - [-1, 1, Conv, [256, 3, 2]]
-  - [[-1, 17], 1, Concat, [1]] # cat head P4
-  - [-1, 2, C3k2, [512, False]] # 24 (P4/16-medium)
+  # ---------------- BOTTOM-UP PATH ----------------
+  # Fuse P3 -> P4
+  - [-1, 1, Conv, [256, 3, 2]] # 22 (Downsample P3 to 64ch)
+  
+  # Fuse: [P3_down (22)] + [P4_in (12)] + [P4_Top_Down (17)]
+  # Note: Index 17 is the CBAM layer from the top-down path
+  - [[-1, 12, 17], 1, BiFPN_Add3, [256]] # 23
+  
+  - [-1, 2, C3k2, [512, False]] # 24 (Expand to 128ch for Detect)
+  - [-1, 1, CBAM, [512]] # 25 (Attention on P4 Output) 🟢 -> TO DETECT
 
-  - [-1, 1, Conv, [512, 3, 2]]
-  - [[-1, 13], 1, Concat, [1]] # cat head P5
-  - [-1, 2, C3k2, [1024, True]] # 27 (P5/32-large)
+  # Fuse P4 -> P5
+  - [-1, 1, Conv, [256, 3, 2]] # 26 (Project P4 back to 64ch for fusion)
+  
+  # Fuse: [P4_down (26)] + [P5_in (13)]
+  - [[-1, 13], 1, BiFPN_Add2, [256]] # 27
+  
+  - [-1, 2, C3k2, [1024, True]] # 28 (Expand to 256ch for Detect)
+  - [-1, 1, CBAM, [1024]] # 29 (Attention on P5 Output) 🟢 -> TO DETECT
 
-  - [[21, 24, 27], 1,  Detect, [nc]] # Detect(P3, P4, P5)
+  # ---------------- DETECT ----------------
+  # Inputs are the CBAM layers: 21 (P3), 25 (P4), 29 (P5)
+  - [[21, 25, 29], 1, Detect, [nc]]

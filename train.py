@@ -3,12 +3,12 @@ warnings.filterwarnings('ignore')
 from ultralytics import YOLO
 
 if __name__ == '__main__':
-    model = YOLO('/kaggle/working/ultralytics/ultralytics/cfg/models/12/yolo12s-obb.yaml')
+    model = YOLO('/kaggle/working/ultralytics/ultralytics/cfg/models/11/yolo11s.yaml')
     #model.load('/content/drive/MyDrive/KaggleNotebookOutput/ultralytics/runs/train/exp/weights/best.pt') # loading pretrain weights
     #model.load('/kaggle/input/tumor-yolo/finally-best.pt') # loading pretrain weights
     model.train(#data='/root/.cache/kagglehub/datasets/monaerkiconbinker/tumor-yolo/versions/2/breast_tumor04/data.yaml',
-                data='/kaggle/input/US-needle/augmented/data.yaml',
-                #data='/content/datasets/breast_tumor04/data.yaml'
+                #data='/kaggle/input/US-needle/augmented/data.yaml',
+                data='/kaggle/input/YOLO-tumor/my_yolo_dataset/data.yaml'
                 cache=False,
                 imgsz=640,
                 epochs=450,

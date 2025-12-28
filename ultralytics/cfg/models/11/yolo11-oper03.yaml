@@ -56,7 +56,7 @@ head:
   
   # Fuse: [P3_down (22)] + [P4_in (12)] + [P4_Top_Down (17)]
   # Note: Index 17 is the CBAM layer from the top-down path
-  - [[-1, 12, 17], 1, BiFPN_Add3, [256]] # 21
+  - [[-1, 12, 16], 1, BiFPN_Add3, [256]] # 21
   
   - [-1, 2, C3k2, [512, False]] # 22 (Expand to 128ch for Detect)
 

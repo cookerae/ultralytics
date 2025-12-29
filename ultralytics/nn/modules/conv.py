@@ -6,6 +6,7 @@ import math
 import numpy as np
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 __all__ = (
     "Conv",
@@ -24,6 +25,8 @@ __all__ = (
     "Index",
     "SPD",
     "SPDConv",
+    "SCConv",
+    "ODConv",
 )
 
 
@@ -629,7 +632,7 @@ class CBAM(nn.Module):
         spatial_attention (SpatialAttention): Spatial attention module.
     """
 
-    def __init__(self, c1, c2, kernel_size=7):
+    def __init__(self, c1, c2,kernel_size=7):
         """
         Initialize CBAM with given parameters.
 
@@ -738,3 +741,188 @@ class SPDConv(nn.Module):
         x = self.conv(x)
         return x
 
+class SRU(nn.Module):
+    """
+    Spatial Reconstruction Unit for SCConv.
+    """
+    def __init__(self, output_channel, groups=16, gate_threshold=0.5):
+        super().__init__()
+        # Ensure groups doesn't exceed channels for small models (Nano/Small)
+        groups = min(groups, output_channel) 
+        self.gn = nn.GroupNorm(num_groups=groups, num_channels=output_channel, affine=False)
+        self.gate_threshold = gate_threshold
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, x):
+        gn_x = self.gn(x)
+        w_out = self.sigmoid(gn_x * x)
+        x_out = x * w_out
+        return x_out
+
+class CRU(nn.Module):
+    """
+    Channel Reconstruction Unit for SCConv.
+    """
+    def __init__(self, op_channel, alpha=1/2, squeeze_radio=2, group_size=2):
+        super().__init__()
+        self.up_channel = int(op_channel * alpha)
+        self.low_channel = op_channel - self.up_channel
+        
+        hidden_channel = self.up_channel // squeeze_radio
+        
+        self.squeeze1 = nn.Conv2d(self.up_channel, hidden_channel, kernel_size=1, bias=False)
+        self.squeeze2 = nn.Conv2d(self.low_channel, self.low_channel // squeeze_radio, kernel_size=1, bias=False)
+        
+        # --- FIX: Output channels set to self.up_channel instead of op_channel ---
+        self.GWC = nn.Conv2d(hidden_channel, self.up_channel, kernel_size=3, stride=1, padding=1, groups=group_size)
+        self.p_conv1 = nn.Conv2d(hidden_channel, self.up_channel, kernel_size=1, bias=False)
+        
+        # --- FIX: Output channels set to self.low_channel instead of op_channel ---
+        self.p_conv2 = nn.Conv2d(self.low_channel // squeeze_radio, self.low_channel, kernel_size=1, bias=False)
+
+    def forward(self, x):
+        # Split
+        up, low = torch.split(x, [self.up_channel, self.low_channel], dim=1)
+        
+        # Transform
+        up = self.squeeze1(up)
+        low = self.squeeze2(low)
+        
+        # Merge
+        Y1 = self.GWC(up) + self.p_conv1(up) # Result is [Batch, up_channel, H, W]
+        Y2 = self.p_conv2(low)               # Result is [Batch, low_channel, H, W]
+        
+        # Concat restores original size: up_channel + low_channel = op_channel
+        out = torch.cat([Y1, Y2], dim=1)
+        return F.softmax(out, dim=1) * out
+
+class SCConv(nn.Module):
+    def __init__(self, c1, c2, k=3, s=1, p=None, g=1, act=True):
+        super().__init__()
+        self.SRU = SRU(c1)
+        self.CRU = CRU(c1)
+        # Standard convolution takes c1 (output of CRU) and maps to c2
+        self.conv = nn.Conv2d(c1, c2, k, s, padding=p or k//2, groups=g, bias=False)
+        self.bn = nn.BatchNorm2d(c2)
+        self.act = nn.SiLU() if act is True else (act if isinstance(act, nn.Module) else nn.Identity())
+
+    def forward(self, x):
+        x = self.SRU(x)
+        x = self.CRU(x)
+        return self.act(self.bn(self.conv(x)))
+
+class Attention(nn.Module):
+    def __init__(self, in_planes, out_planes, kernel_size, groups=1, reduction=0.0625, kernel_num=4, min_channel=16):
+        super(Attention, self).__init__()
+        attention_channel = max(int(in_planes * reduction), min_channel)
+        self.kernel_size = kernel_size
+        self.kernel_num = kernel_num
+        self.temperature = 1.0
+
+        self.avgpool = nn.AdaptiveAvgPool2d(1)
+        self.fc = nn.Conv2d(in_planes, attention_channel, 1, bias=False)
+        # Use GroupNorm instead of BatchNorm. 
+        # GroupNorm(1, channels) behaves like LayerNorm and works with Batch Size=1.
+        self.bn = nn.GroupNorm(1, attention_channel) 
+        self.relu = nn.ReLU(inplace=True)
+
+        self.channel_fc = nn.Conv2d(attention_channel, in_planes, 1, bias=True)
+        self.func_channel = self.get_channel_attention
+
+        if in_planes == groups and in_planes == out_planes:  # Depthwise
+            self.func_filter = self.skip
+        else:
+            self.filter_fc = nn.Conv2d(attention_channel, out_planes, 1, bias=True)
+            self.func_filter = self.get_filter_attention
+
+        if kernel_size == 1:  # Pointwise
+            self.func_spatial = self.skip
+        else:
+            self.spatial_fc = nn.Conv2d(attention_channel, kernel_size * kernel_size, 1, bias=True)
+            self.func_spatial = self.get_spatial_attention
+
+        self.kernel_fc = nn.Conv2d(attention_channel, kernel_num, 1, bias=True)
+        self.func_kernel = self.get_kernel_attention
+
+        self._initialize_weights()
+
+    def _initialize_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
+            if isinstance(m, nn.BatchNorm2d):
+                nn.init.constant_(m.weight, 1)
+                nn.init.constant_(m.bias, 0)
+
+    def update_temperature(self, temperature):
+        self.temperature = temperature
+
+    @staticmethod
+    def skip(_):
+        return 1.0
+
+    def get_channel_attention(self, x):
+        channel_attention = torch.sigmoid(self.channel_fc(x).view(x.size(0), -1, 1, 1) / self.temperature)
+        return channel_attention
+
+    def get_filter_attention(self, x):
+        filter_attention = torch.sigmoid(self.filter_fc(x).view(x.size(0), -1, 1, 1) / self.temperature)
+        return filter_attention
+
+    def get_spatial_attention(self, x):
+        spatial_attention = self.spatial_fc(x).view(x.size(0), 1, 1, 1, self.kernel_size, self.kernel_size)
+        spatial_attention = torch.sigmoid(spatial_attention / self.temperature)
+        return spatial_attention
+
+    def get_kernel_attention(self, x):
+        kernel_attention = self.kernel_fc(x).view(x.size(0), -1, 1, 1, 1, 1)
+        kernel_attention = F.softmax(kernel_attention / self.temperature, dim=1)
+        return kernel_attention
+
+    def forward(self, x):
+        x = self.avgpool(x)
+        x = self.fc(x)
+        x = self.bn(x)
+        x = self.relu(x)
+        return self.func_channel(x), self.func_filter(x), self.func_spatial(x), self.func_kernel(x)
+
+class ODConv(nn.Module):
+    def __init__(self, c1, c2, k=3, s=1, g=1, reduction=0.0625, kernel_num=4):
+        super(ODConv, self).__init__()
+        self.in_planes = c1
+        self.out_planes = c2
+        self.kernel_size = k
+        self.stride = s
+        self.padding = k // 2
+        self.groups = g
+        self.kernel_num = kernel_num
+        self.attention = Attention(c1, c2, k, g, reduction, kernel_num)
+        self.weight = nn.Parameter(torch.randn(kernel_num, c2, c1 // g, k, k), requires_grad=True)
+        self._initialize_weights()
+
+        # Add Activation and BN for YOLO compatibility (optional but recommended)
+        self.bn = nn.BatchNorm2d(c2)
+        self.act = nn.SiLU() 
+
+    def _initialize_weights(self):
+        for i in range(self.kernel_num):
+            nn.init.kaiming_normal_(self.weight[i], mode='fan_out', nonlinearity='relu')
+
+    def update_temperature(self, temperature):
+        self.attention.update_temperature(temperature)
+
+    def forward(self, x):
+        channel_attention, filter_attention, spatial_attention, kernel_attention = self.attention(x)
+        batch_size, in_planes, height, width = x.size()
+        x = x * channel_attention
+        x = x.reshape(1, -1, height, width)
+        aggregate_weight = spatial_attention * kernel_attention * self.weight.unsqueeze(dim=0)
+        aggregate_weight = torch.sum(aggregate_weight, dim=1).view(
+            [-1, self.in_planes // self.groups, self.kernel_size, self.kernel_size])
+        output = F.conv2d(x, weight=aggregate_weight, bias=None, stride=self.stride, padding=self.padding,
+                          groups=self.groups * batch_size)
+        output = output.view(batch_size, self.out_planes, output.size(-2), output.size(-1))
+        output = output * filter_attention
+        return self.act(self.bn(output))

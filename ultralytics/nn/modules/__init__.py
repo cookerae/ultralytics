@@ -92,6 +92,8 @@ from .conv import (
     SPD,
     SPDConv,
     SpatialAttention,
+    SCConv,
+    ODConv,
 )
 from .carafe import CARAFEUpsampler
 from .head import (

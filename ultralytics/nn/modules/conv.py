@@ -27,6 +27,7 @@ __all__ = (
     "SPDConv",
     "SCConv",
     "ODConv",
+    "DWConvBlock",
 )
 
 
@@ -926,3 +927,31 @@ class ODConv(nn.Module):
         output = output.view(batch_size, self.out_planes, output.size(-2), output.size(-1))
         output = output * filter_attention
         return self.act(self.bn(output))
+
+class DWConvBlock(nn.Module):
+    """
+    Depthwise Separable Convolution.
+    Consists of:
+      1. Depthwise Conv (Spatial): k=k, groups=channels
+      2. Pointwise Conv (Mixing): k=1, groups=1
+    """
+    def __init__(self, c1, c2, k=1, s=1, p=None, act=True):
+        super().__init__()
+        # 1. Depthwise: Input channels -> Input channels (no channel mixing)
+        self.depthwise = nn.Sequential(
+            nn.Conv2d(c1, c1, kernel_size=k, stride=s, padding=autopad(k, p), groups=c1, bias=False),
+            nn.BatchNorm2d(c1),
+            nn.SiLU(inplace=True) if act else nn.Identity()
+        )
+        
+        # 2. Pointwise: Input channels -> Output channels (mixes channels)
+        self.pointwise = nn.Sequential(
+            nn.Conv2d(c1, c2, kernel_size=1, stride=1, padding=0, bias=False),
+            nn.BatchNorm2d(c2),
+            nn.SiLU(inplace=True) if act else nn.Identity()
+        )
+
+    def forward(self, x):
+        x = self.depthwise(x)
+        x = self.pointwise(x)
+        return x

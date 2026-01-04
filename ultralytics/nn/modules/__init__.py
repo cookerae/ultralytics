@@ -94,6 +94,7 @@ from .conv import (
     SpatialAttention,
     SCConv,
     ODConv,
+    DWConvBlock，
 )
 from .carafe import CARAFEUpsampler
 from .head import (

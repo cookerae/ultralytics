@@ -89,6 +89,7 @@ from ultralytics.nn.modules import (
     SCConv,
     ODConv,
     DWConvBlock,
+    ECA,
     )
 from ultralytics.nn.modules.dynamic_head import DynamicHeadDetect
 from ultralytics.utils import DEFAULT_CFG_DICT, DEFAULT_CFG_KEYS, LOGGER, colorstr, emojis, yaml_load
@@ -1447,6 +1448,7 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
             SCConv,
             ODConv,
             DWConvBlock,
+            ECA,
 
         }
     )

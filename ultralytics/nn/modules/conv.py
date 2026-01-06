@@ -28,6 +28,7 @@ __all__ = (
     "SCConv",
     "ODConv",
     "DWConvBlock",
+    "ECA",
 )
 
 
@@ -729,18 +730,45 @@ class SPD(nn.Module):
         # Rearrange blocks of spatial data into the channel dimension
         return torch.cat([x[..., ::2, ::2], x[..., 1::2, ::2], x[..., ::2, 1::2], x[..., 1::2, 1::2]], self.d)
 
+# class SPDConv(nn.Module):
+#     # SPD-Conv layer: SPD followed by a non-strided convolution
+#     def __init__(self, c1, c2, k=3, s=1, p=None, g=1, d=1, act=True):
+#         super().__init__()
+#         self.spd = SPD()
+#         # After SPD, the number of channels becomes c1 * 4
+#         self.conv = Conv(c1 * 4, c2, k, s, p=p, g=g, d=d, act=act)
+
+#     def forward(self, x):
+#         x = self.spd(x)
+#         x = self.conv(x)
+#         return x
+
 class SPDConv(nn.Module):
-    # SPD-Conv layer: SPD followed by a non-strided convolution
-    def __init__(self, c1, c2, k=3, s=1, p=None, g=1, d=1, act=True):
+    """
+    SPD-Conv: Space-to-Depth (PixelUnshuffle) followed by a 1x1 Convolution.
+    Rearranges a 2x2 neighborhood into channel dimension, then mixes channels.
+    """
+    def __init__(self, c1, c2, dimension=1):
         super().__init__()
-        self.spd = SPD()
-        # After SPD, the number of channels becomes c1 * 4
-        self.conv = Conv(c1 * 4, c2, k, s, p=p, g=g, d=d, act=act)
+        # The Space-to-Depth operation increases channels by factor of 4
+        # (assuming 2x2 blocks).
+        self.space_to_depth_channels = c1 * 4
+        
+        # Standard 1x1 convolution to mix channels and project to output dimension
+        self.conv = nn.Conv2d(self.space_to_depth_channels, c2, 1, 1, 0, bias=False)
+        self.bn = nn.BatchNorm2d(c2)
+        self.act = nn.SiLU()  # Or ReLU, depending on your YOLO version
 
     def forward(self, x):
-        x = self.spd(x)
-        x = self.conv(x)
-        return x
+        # x shape: [B, C, H, W]
+        
+        # 1. Space-to-Depth (PixelUnshuffle)
+        # Rearranges blocks of spatial data into depth.
+        # Output shape: [B, C*4, H/2, W/2]
+        x = torch.nn.functional.pixel_unshuffle(x, 2)
+        
+        # 2. 1x1 Conv + BN + Act
+        return self.act(self.bn(self.conv(x)))
 
 class SRU(nn.Module):
     """
@@ -955,3 +983,32 @@ class DWConvBlock(nn.Module):
         x = self.depthwise(x)
         x = self.pointwise(x)
         return x
+
+
+class ECA(nn.Module):
+    """
+    Efficient Channel Attention Module
+    Paper: https://arxiv.org/abs/1910.03151
+    """
+    def __init__(self, c1, c2, gamma=2, b=1):
+        super(ECA, self).__init__()
+        # c1 is input channels, c2 is output channels (kept for compatibility with YOLO args, but usually c1==c2)
+        
+        # Adaptive kernel size calculation based on channel size
+        t = int(abs((math.log(c1, 2) + b) / gamma))
+        k = t if t % 2 else t + 1  # Ensure kernel size is odd
+
+        self.avg_pool = nn.AdaptiveAvgPool2d(1)
+        self.conv = nn.Conv1d(1, 1, kernel_size=k, padding=(k - 1) // 2, bias=False)
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, x):
+        # x: input tensor with shape (batch, channel, height, width)
+        y = self.avg_pool(x)
+        
+        # Reshape for 1D convolution: (b, c, 1, 1) -> (b, 1, c)
+        y = self.conv(y.squeeze(-1).transpose(-1, -2)).transpose(-1, -2).unsqueeze(-1)
+        
+        # Apply sigmoid and scale input
+        y = self.sigmoid(y)
+        return x * y.expand_as(x)

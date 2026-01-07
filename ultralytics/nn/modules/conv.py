@@ -730,45 +730,19 @@ class SPD(nn.Module):
         # Rearrange blocks of spatial data into the channel dimension
         return torch.cat([x[..., ::2, ::2], x[..., 1::2, ::2], x[..., ::2, 1::2], x[..., 1::2, 1::2]], self.d)
 
-# class SPDConv(nn.Module):
-#     # SPD-Conv layer: SPD followed by a non-strided convolution
-#     def __init__(self, c1, c2, k=3, s=1, p=None, g=1, d=1, act=True):
-#         super().__init__()
-#         self.spd = SPD()
-#         # After SPD, the number of channels becomes c1 * 4
-#         self.conv = Conv(c1 * 4, c2, k, s, p=p, g=g, d=d, act=act)
-
-#     def forward(self, x):
-#         x = self.spd(x)
-#         x = self.conv(x)
-#         return x
-
 class SPDConv(nn.Module):
-    """
-    SPD-Conv: Space-to-Depth (PixelUnshuffle) followed by a 1x1 Convolution.
-    Rearranges a 2x2 neighborhood into channel dimension, then mixes channels.
-    """
-    def __init__(self, c1, c2, dimension=1):
+    # SPD-Conv layer: SPD followed by a non-strided convolution
+    def __init__(self, c1, c2, k=3, s=1, p=None, g=1, d=1, act=True):
         super().__init__()
-        # The Space-to-Depth operation increases channels by factor of 4
-        # (assuming 2x2 blocks).
-        self.space_to_depth_channels = c1 * 4
-        
-        # Standard 1x1 convolution to mix channels and project to output dimension
-        self.conv = nn.Conv2d(self.space_to_depth_channels, c2, 1, 1, 0, bias=False)
-        self.bn = nn.BatchNorm2d(c2)
-        self.act = nn.SiLU()  # Or ReLU, depending on your YOLO version
+        self.spd = SPD()
+        # After SPD, the number of channels becomes c1 * 4
+        self.conv = Conv(c1 * 4, c2, k, s, p=p, g=g, d=d, act=act)
 
     def forward(self, x):
-        # x shape: [B, C, H, W]
-        
-        # 1. Space-to-Depth (PixelUnshuffle)
-        # Rearranges blocks of spatial data into depth.
-        # Output shape: [B, C*4, H/2, W/2]
-        x = torch.nn.functional.pixel_unshuffle(x, 2)
-        
-        # 2. 1x1 Conv + BN + Act
-        return self.act(self.bn(self.conv(x)))
+        x = self.spd(x)
+        x = self.conv(x)
+        return x
+
 
 class SRU(nn.Module):
     """

@@ -582,34 +582,25 @@ class SpatialAttention(nn.Module):
 
 class CBAM(nn.Module):
     """Convolutional Block Attention Module.
-
     Combines channel and spatial attention mechanisms for comprehensive feature refinement.
-
-    Attributes:
-        channel_attention (ChannelAttention): Channel attention module.
-        spatial_attention (SpatialAttention): Spatial attention module.
     """
 
-    def __init__(self, c1, kernel_size=7):
+    def __init__(self, c1, c2=None, kernel_size=7):
         """Initialize CBAM with given parameters.
 
         Args:
             c1 (int): Number of input channels.
+            c2 (int): Number of output channels (Parsed from YAML, but unused here).
             kernel_size (int): Size of the convolutional kernel for spatial attention.
         """
         super().__init__()
+        # c2 is received from the YAML parser but not needed for CBAM logic, 
+        # so we ignore it and let kernel_size use its default (7)
+        
         self.channel_attention = ChannelAttention(c1)
         self.spatial_attention = SpatialAttention(kernel_size)
 
     def forward(self, x):
-        """Apply channel and spatial attention sequentially to input tensor.
-
-        Args:
-            x (torch.Tensor): Input tensor.
-
-        Returns:
-            (torch.Tensor): Attended output tensor.
-        """
         return self.spatial_attention(self.channel_attention(x))
 
 

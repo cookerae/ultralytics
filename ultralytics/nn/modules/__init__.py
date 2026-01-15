@@ -227,5 +227,6 @@ __all__ = (
     "BiFPN_Concat3",
     "BiFPN_Add2",
     "BiFPN_Add3",
+    "SimAM",
 )
 

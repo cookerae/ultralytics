@@ -96,6 +96,7 @@ from .conv import (
     ODConv,
     DWConvBlock,
     ECA,
+    SimAM,
 )
 from .carafe import CARAFEUpsampler
 from .head import (

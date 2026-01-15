@@ -25,7 +25,6 @@ backbone:
   - [-1, 2, C3k2, [512, True]]
   - [-1, 1, SPDConv, [1024, 3]] # 7-P5/32
   - [-1, 2, C3k2, [1024, True]]
-  - [-1, 1, CBAM, [1024]]
   - [-1, 1, SPPF, [1024, 5, 3, True]] # 9
   - [-1, 2, C2PSA, [1024]] # 10
 
@@ -36,18 +35,20 @@ head:
   # Force all backbone levels to Base 256 (Actual 64ch at scale 'n')
   - [4, 1, Conv, [256, 1, 1]]  # 11 - P3_in (64 ch)
   - [6, 1, Conv, [256, 1, 1]]  # 12 - P4_in (64 ch)
-  - [11, 1, Conv, [256, 1, 1]] # 13 - P5_in (64 ch)
+  - [10, 1, Conv, [256, 1, 1]] # 13 - P5_in (64 ch)
 
   # ---------------- TOP-DOWN PATH ----------------
   # Fuse P5 -> P4
   - [-1, 1, nn.Upsample, [None, 2, "nearest"]] # 14 (P5_up)
-  - [[-1, 13], 1, BiFPN_Add2, [256]] # 15 (Fuse P5_up + P4_in)
+  - [[-1, 12], 1, BiFPN_Add2, [256]] # 15 (Fuse P5_up + P4_in)
   - [-1, 2, C3k2, [256, True]] # 16 (Process Features)
+  - [-1, 1, SimAM, []]
 
   # Fuse P4 -> P3
   - [-1, 1, nn.Upsample, [None, 2, "nearest"]] # 17 (P4_up)
-  - [[-1, 12], 1, BiFPN_Add2, [256]] # 18 (Fuse P4_up + P3_in)
+  - [[-1, 11], 1, BiFPN_Add2, [256]] # 18 (Fuse P4_up + P3_in)
   - [-1, 2, C3k2, [256, True]] # 19 (Process P3)
+  - [-1, 1, SimAM, []]
 
   # ---------------- BOTTOM-UP PATH ----------------
   # Fuse P3 -> P4
@@ -55,7 +56,7 @@ head:
   
   # Fuse: [P3_down (22)] + [P4_in (12)] + [P4_Top_Down (17)]
   # Note: Index 17 is the CBAM layer from the top-down path
-  - [[-1, 13, 17], 1, BiFPN_Add3, [256]] # 21
+  - [[-1, 12, 17], 1, BiFPN_Add3, [256]] # 21
   
   - [-1, 2, C3k2, [512, True]] # 22 (Expand to 128ch for Detect)
 
@@ -63,12 +64,10 @@ head:
   - [-1, 1, Conv, [256, 3, 2]] # 23 (Project P4 back to 64ch for fusion)
   
   # Fuse: [P4_down (26)] + [P5_in (13)]
-  - [[-1, 14], 1, BiFPN_Add2, [256]] # 24
+  - [[-1, 13], 1, BiFPN_Add2, [256]] # 24
   
   - [-1, 2, C3k2, [1024, True, 0.5, True]] # 25 (Expand to 256ch for Detect)
 
   # ---------------- DETECT ----------------
   # Inputs are the CBAM layers: 21 (P3), 25 (P4), 29 (P5)
-  - [[20, 23, 26], 1, Detect, [nc]]
-
-
+  - [[21, 24, 27], 1, Detect, [nc]]

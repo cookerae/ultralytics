@@ -90,6 +90,7 @@ from ultralytics.nn.modules import (
     ODConv,
     DWConvBlock,
     ECA,
+    SimAM,
     )
 from ultralytics.nn.modules.dynamic_head import DynamicHeadDetect
 from ultralytics.utils import DEFAULT_CFG_DICT, DEFAULT_CFG_KEYS, LOGGER, colorstr, emojis, yaml_load
@@ -1529,6 +1530,10 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
                 n = 1
         elif m is ResNetLayer:
             c2 = args[1] if args[3] else args[1] * 4
+        elif m is SimAM:
+            c1 = ch[f]
+            c2 = c1  # SimAM output channels = input channels
+            args = [c1, *args] # Pass c1 to SimAM.__init__
         elif m is torch.nn.BatchNorm2d:
             args = [ch[f]]
         elif m is Concat:

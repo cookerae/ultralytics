@@ -113,36 +113,51 @@ def bbox_iou_wiou_v3(box1, box2, xywh=True, eps=1e-7, momentum=0.999):
 
 
 class VarifocalLoss(nn.Module):
-    """
-    Varifocal loss by Zhang et al.
-
-    Implements the Varifocal Loss function for addressing class imbalance in object detection by focusing on
-    hard-to-classify examples and balancing positive/negative samples.
-
-    Attributes:
-        gamma (float): The focusing parameter that controls how much the loss focuses on hard-to-classify examples.
-        alpha (float): The balancing factor used to address class imbalance.
-
-    References:
-        https://arxiv.org/abs/2008.13367
-    """
-
-    def __init__(self, gamma: float = 2.0, alpha: float = 0.75):
-        """Initialize the VarifocalLoss class with focusing and balancing parameters."""
-        super().__init__()
-        self.gamma = gamma
+    def __init__(self, use_sigmoid=True, alpha=0.75, gamma=2.0, reduction='mean'):
+        """
+        Args:
+            use_sigmoid (bool): Whether the prediction is used for sigmoid or softmax.
+            alpha (float): Scaling factor for the negative class (background).
+            gamma (float): Exponent for the modulating factor (focal parameter).
+            reduction (str): 'mean', 'sum', or 'none'.
+        """
+        super(VarifocalLoss, self).__init__()
+        self.use_sigmoid = use_sigmoid
         self.alpha = alpha
+        self.gamma = gamma
+        self.reduction = reduction
 
-    def forward(self, pred_score: torch.Tensor, gt_score: torch.Tensor, label: torch.Tensor) -> torch.Tensor:
-        """Compute varifocal loss between predictions and ground truth."""
-        weight = self.alpha * pred_score.sigmoid().pow(self.gamma) * (1 - label) + gt_score * label
-        with autocast(enabled=False):
-            loss = (
-                (F.binary_cross_entropy_with_logits(pred_score.float(), gt_score.float(), reduction="none") * weight)
-                .mean(1)
-                .sum()
-            )
-        return loss
+    def forward(self, pred_logits, target_score, label=None):
+        """
+        Args:
+            pred_logits (Tensor): Predicted logits from the model (before sigmoid). Shape: [N, C]
+            target_score (Tensor): Target quality scores (0 to 1). Shape: [N, C]
+                                   For positives, this is usually the IoU score.
+                                   For negatives, this is 0.
+        """
+        if self.use_sigmoid:
+            pred_score = pred_logits.sigmoid()
+        else:
+            pred_score = pred_logits
+
+        # Calculate the weight for each sample
+        # If target > 0 (Positive): weight = target_score (trains to predict IoU)
+        # If target = 0 (Negative): weight = alpha * pred_score^gamma (Focal Loss down-weighting)
+        
+        weight = self.alpha * pred_score.pow(self.gamma) * (1 - target_score) + target_score
+        
+        # We calculate BCE Loss
+        # For positives: target is the IoU score (q), not 1.0.
+        loss = F.binary_cross_entropy_with_logits(pred_logits, target_score, reduction='none')
+        
+        loss = loss * weight
+
+        if self.reduction == 'mean':
+            return loss.mean()
+        elif self.reduction == 'sum':
+            return loss.sum()
+        else:
+            return loss
 
 
 class FocalLoss(nn.Module):
@@ -304,7 +319,8 @@ class v8DetectionLoss:
         h = model.args  # hyperparameters
 
         m = model.model[-1]  # Detect() module
-        self.bce = nn.BCEWithLogitsLoss(reduction="none")
+        #self.bce = nn.BCEWithLogitsLoss(reduction="none")
+        self.vfl = VarifocalLoss(alpha=0.75, gamma=2.0, reduction='none')
         self.hyp = h
         self.stride = m.stride  # model strides
         self.nc = m.nc  # number of classes
@@ -385,7 +401,8 @@ class v8DetectionLoss:
 
         # Cls loss
         # loss[1] = self.varifocal_loss(pred_scores, target_scores, target_labels) / target_scores_sum  # VFL way
-        loss[1] = self.bce(pred_scores, target_scores.to(dtype)).sum() / target_scores_sum  # BCE
+        #loss[1] = self.bce(pred_scores, target_scores.to(dtype)).sum() / target_scores_sum  # BCE
+        loss[1] = self.vfl(pred_scores, target_scores.to(dtype)).sum() / target_scores_sum
 
         # Bbox loss
         if fg_mask.sum():
@@ -459,7 +476,8 @@ class v8SegmentationLoss(v8DetectionLoss):
 
         # Cls loss
         # loss[1] = self.varifocal_loss(pred_scores, target_scores, target_labels) / target_scores_sum  # VFL way
-        loss[2] = self.bce(pred_scores, target_scores.to(dtype)).sum() / target_scores_sum  # BCE
+        #loss[2] = self.bce(pred_scores, target_scores.to(dtype)).sum() / target_scores_sum  # BCE
+        loss[2] = self.vfl(pred_scores, target_scores.to(dtype)).sum() / target_scores_sum
 
         if fg_mask.sum():
             # Bbox loss
@@ -639,7 +657,8 @@ class v8PoseLoss(v8DetectionLoss):
 
         # Cls loss
         # loss[1] = self.varifocal_loss(pred_scores, target_scores, target_labels) / target_scores_sum  # VFL way
-        loss[3] = self.bce(pred_scores, target_scores.to(dtype)).sum() / target_scores_sum  # BCE
+        #loss[3] = self.bce(pred_scores, target_scores.to(dtype)).sum() / target_scores_sum  # BCE
+        loss[3] = self.vfl(pred_scores, target_scores.to(dtype)).sum() / target_scores_sum
 
         # Bbox loss
         if fg_mask.sum():
@@ -837,7 +856,8 @@ class v8OBBLoss(v8DetectionLoss):
 
         # Cls loss
         # loss[1] = self.varifocal_loss(pred_scores, target_scores, target_labels) / target_scores_sum  # VFL way
-        loss[1] = self.bce(pred_scores, target_scores.to(dtype)).sum() / target_scores_sum  # BCE
+        #loss[1] = self.bce(pred_scores, target_scores.to(dtype)).sum() / target_scores_sum  # BCE
+        loss[1] = self.vfl(pred_scores, target_scores.to(dtype)).sum() / target_scores_sum
 
         # Bbox loss
         if fg_mask.sum():

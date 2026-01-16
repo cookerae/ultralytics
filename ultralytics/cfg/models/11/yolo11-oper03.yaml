@@ -44,13 +44,11 @@ head:
   - [-1, 1, nn.Upsample, [None, 2, "nearest"]] # 14 (P5_up)
   - [[-1, 12], 1, BiFPN_Add2, [256]] # 15 (Fuse P5_up + P4_in)
   - [-1, 2, C3k2, [256, False]] # 16 (Process Features)
-  - [-1, 1, CBAM, [256]] # 17 (Attention on P4 Top-Down) 🟢
 
   # Fuse P4 -> P3
   - [-1, 1, nn.Upsample, [None, 2, "nearest"]] # 18 (P4_up)
   - [[-1, 11], 1, BiFPN_Add2, [256]] # 19 (Fuse P4_up + P3_in)
   - [-1, 2, C3k2, [256, False]] # 20 (Process P3)
-  - [-1, 1, CBAM, [256]] # 21 (Attention on P3 Output) 🟢 -> TO DETECT
 
   # ---------------- BOTTOM-UP PATH ----------------
   # Fuse P3 -> P4
@@ -58,7 +56,7 @@ head:
   
   # Fuse: [P3_down (22)] + [P4_in (12)] + [P4_Top_Down (17)]
   # Note: Index 17 is the CBAM layer from the top-down path
-  - [[-1, 12, 17], 1, BiFPN_Add3, [256]] # 23
+  - [[-1, 12, 16], 1, BiFPN_Add3, [256]] # 23
   
   - [-1, 2, C3k2, [512, False]] # 24 (Expand to 128ch for Detect)
 
@@ -72,4 +70,4 @@ head:
 
   # ---------------- DETECT ----------------
   # Inputs are the CBAM layers: 21 (P3), 25 (P4), 29 (P5)
-  - [[21, 24, 27], 1, Detect, [nc]]
+  - [[19, 22, 25], 1, Detect, [nc]]

@@ -21,8 +21,13 @@ if __name__ == '__main__':
                 workers=0,
                 val=True,
                 amp=False,
-                cls=2.0,
+                box=12.0,
+                momentum=0.9,
+                lr0=0.001,
+                warmup_epochs=5,
+                optimizer='SGD', 
                 #save_period = 20,
+                
                 #python train.py --img 640 --batch 16 --epochs 400 --data your_dataset.yaml --weights yolov8n.pt --patience 100 --close_mosaic 0 --name Stage1_Mosaic_Training
                 #python train.py --img 640 --batch 16 --epochs 50 --data your_dataset.yaml --weights runs/train/Stage1_Mosaic_Training/weights/best.pt --patience 30 --lr0 0.001 --no-aug --name Stage2_Finetuning
                 )

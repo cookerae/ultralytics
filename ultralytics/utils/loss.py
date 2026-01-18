@@ -58,106 +58,91 @@ def bbox_iou_wiou_v3(box1, box2, xywh=True, eps=1e-7, momentum=0.999):
     union = w1 * h1 + w2 * h2 - inter + eps
     
     # IoU
+   # 1. Standard IoU
     iou = inter / union
     
-    # Calculate center points
-    cx1 = (b1_x1 + b1_x2) / 2
-    cy1 = (b1_y1 + b1_y2) / 2
-    cx2 = (b2_x1 + b2_x2) / 2
-    cy2 = (b2_y1 + b2_y2) / 2
+    # 2. Distance Intersection (Standard WIoU simplifies this compared to CIoU)
+    # WIoU uses a normalized distance metric
+    cx1, cy1 = (b1_x1 + b1_x2) / 2, (b1_y1 + b1_y2) / 2
+    cx2, cy2 = (b2_x1 + b2_x2) / 2, (b2_y1 + b2_y2) / 2
     
-    # Calculate distance between centers
     dist_center = (cx1 - cx2) ** 2 + (cy1 - cy2) ** 2
     
-    # Calculate diagonal of smallest enclosing box
-    c_x1 = torch.min(b1_x1, b2_x1)
-    c_y1 = torch.min(b1_y1, b2_y1)
-    c_x2 = torch.max(b1_x2, b2_x2)
-    c_y2 = torch.max(b1_y2, b2_y2)
-    c_w = c_x2 - c_x1
-    c_h = c_y2 - c_y1
+    # Smallest Enclosing Box (for normalization)
+    c_x1, c_y1 = torch.min(b1_x1, b2_x1), torch.min(b1_y1, b2_y1)
+    c_x2, c_y2 = torch.max(b1_x2, b2_x2), torch.max(b1_y2, b2_y2)
+    c_w, c_h = c_x2 - c_x1, c_y2 - c_y1
     diagonal_squared = c_w ** 2 + c_h ** 2 + eps
     
-    # WIoU v3 specific calculations
-    # Calculate aspect ratio term
-    v = (4 / (torch.pi ** 2)) * torch.pow(torch.atan(w2 / (h2 + eps)) - torch.atan(w1 / (h1 + eps)), 2)
+    # 3. WIoU v1 Term (Distance Attention)
+    # exp mechanism amplifies gradients for average quality boxes
+    dist_attn = torch.exp(dist_center / diagonal_squared)
     
-    # Dynamic non-monotonic focusing factor
-    with torch.no_grad():
-        alpha = v / (1 - iou + v + eps)
-        
-    # Calculate quality focal loss
-    # Using IoU as the quality metric with dynamic beta
-    beta = iou.detach()  # Detach to prevent gradient flow
+    # L_WIoU_v1 = R_WIoU * L_IoU
+    # Note: Generally written as IoU loss modulated by distance
+    loss_iou = 1.0 - iou
+    loss_wiou_v1 = loss_iou * dist_attn
     
-    # Non-monotonic focusing mechanism
-    # Higher quality (IoU) predictions get less weight (focusing on hard examples)
-    gamma = 2.0  # Focusing parameter
-    focal_weight = beta ** gamma
+    # 4. WIoU v3 Dynamic Focusing (Gradient Gain)
+    # Defines how much to focus based on outlier degree
+    # beta: outlier degree (usually just the IoU score in simple implementations, 
+    # or L_iou / L_avg). The paper uses a more complex beta, 
+    # but a common simplification is using IoU.
     
-    # Apply outlier degree weighting
-    # Outliers (low IoU) get different treatment
-    outlier_threshold = 0.5
-    is_outlier = (iou.detach() < outlier_threshold).float()
+    # We detach beta because we calculate gain based on current status,
+    # not trying to optimize the gain itself.
+    beta = loss_iou.detach() 
     
-    # Different weights for outliers vs normal samples
-    normal_weight = 1.0
-    outlier_weight = 1.0 / (1 + torch.exp(-10 * (iou.detach() - 0.1)))  # Sigmoid weighting for outliers
+    # Parameters from WIoU paper
+    alpha = 1.7
+    delta = 3.0
     
-    weight = is_outlier * outlier_weight + (1 - is_outlier) * normal_weight * focal_weight
+    # Non-monotonic focusing coefficient (r)
+    # Gradients are small for high IoU (easy) and low IoU (outlier)
+    # Gradients are high for average IoU
+    r = beta / (delta * torch.pow(alpha, beta - delta))
     
-    # Calculate WIoU v3
-    wiou_v3 = iou - weight * (dist_center / diagonal_squared + alpha * v)
+    # Final Loss
+    loss = r * loss_wiou_v1
     
-    return wiou_v3
+    # Since the BboxLoss class expects an "IoU-like" score to subtract from 1,
+    # we need to invert this.
+    # However, Ultralytics BboxLoss computes: loss = (1.0 - result)
+    # So we should return: 1.0 - loss
+    return (1.0 - loss).clamp(min=-1.0, max=1.0)
 
 
 class VarifocalLoss(nn.Module):
-    def __init__(self, use_sigmoid=True, alpha=0.75, gamma=2.0, reduction='mean'):
-        """
-        Args:
-            use_sigmoid (bool): Whether the prediction is used for sigmoid or softmax.
-            alpha (float): Scaling factor for the negative class (background).
-            gamma (float): Exponent for the modulating factor (focal parameter).
-            reduction (str): 'mean', 'sum', or 'none'.
-        """
-        super(VarifocalLoss, self).__init__()
-        self.use_sigmoid = use_sigmoid
-        self.alpha = alpha
+    """
+    Varifocal loss by Zhang et al.
+
+    Implements the Varifocal Loss function for addressing class imbalance in object detection by focusing on
+    hard-to-classify examples and balancing positive/negative samples.
+
+    Attributes:
+        gamma (float): The focusing parameter that controls how much the loss focuses on hard-to-classify examples.
+        alpha (float): The balancing factor used to address class imbalance.
+
+    References:
+        https://arxiv.org/abs/2008.13367
+    """
+
+    def __init__(self, gamma: float = 2.0, alpha: float = 0.75):
+        """Initialize the VarifocalLoss class with focusing and balancing parameters."""
+        super().__init__()
         self.gamma = gamma
-        self.reduction = reduction
+        self.alpha = alpha
 
-    def forward(self, pred_logits, target_score, label=None):
-        """
-        Args:
-            pred_logits (Tensor): Predicted logits from the model (before sigmoid). Shape: [N, C]
-            target_score (Tensor): Target quality scores (0 to 1). Shape: [N, C]
-                                   For positives, this is usually the IoU score.
-                                   For negatives, this is 0.
-        """
-        if self.use_sigmoid:
-            pred_score = pred_logits.sigmoid()
-        else:
-            pred_score = pred_logits
-
-        # Calculate the weight for each sample
-        # If target > 0 (Positive): weight = target_score (trains to predict IoU)
-        # If target = 0 (Negative): weight = alpha * pred_score^gamma (Focal Loss down-weighting)
-        
-        weight = self.alpha * pred_score.pow(self.gamma) * (1 - target_score) + target_score
-        
-        # We calculate BCE Loss
-        # For positives: target is the IoU score (q), not 1.0.
-        loss = F.binary_cross_entropy_with_logits(pred_logits, target_score, reduction='none')
-        
-        loss = loss * weight
-
-        if self.reduction == 'mean':
-            return loss.mean()
-        elif self.reduction == 'sum':
-            return loss.sum()
-        else:
-            return loss
+    def forward(self, pred_score: torch.Tensor, gt_score: torch.Tensor, label: torch.Tensor) -> torch.Tensor:
+        """Compute varifocal loss between predictions and ground truth."""
+        weight = self.alpha * pred_score.sigmoid().pow(self.gamma) * (1 - label) + gt_score * label
+        with autocast(enabled=False):
+            loss = (
+                (F.binary_cross_entropy_with_logits(pred_score.float(), gt_score.float(), reduction="none") * weight)
+                .mean(1)
+                .sum()
+            )
+        return loss
 
 
 class FocalLoss(nn.Module):
@@ -319,8 +304,7 @@ class v8DetectionLoss:
         h = model.args  # hyperparameters
 
         m = model.model[-1]  # Detect() module
-        #self.bce = nn.BCEWithLogitsLoss(reduction="none")
-        self.vfl = VarifocalLoss(alpha=0.75, gamma=2.0, reduction='none')
+        self.bce = nn.BCEWithLogitsLoss(reduction="none")
         self.hyp = h
         self.stride = m.stride  # model strides
         self.nc = m.nc  # number of classes
@@ -401,8 +385,7 @@ class v8DetectionLoss:
 
         # Cls loss
         # loss[1] = self.varifocal_loss(pred_scores, target_scores, target_labels) / target_scores_sum  # VFL way
-        #loss[1] = self.bce(pred_scores, target_scores.to(dtype)).sum() / target_scores_sum  # BCE
-        loss[1] = self.vfl(pred_scores, target_scores.to(dtype)).sum() / target_scores_sum
+        loss[1] = self.bce(pred_scores, target_scores.to(dtype)).sum() / target_scores_sum  # BCE
 
         # Bbox loss
         if fg_mask.sum():
@@ -476,8 +459,7 @@ class v8SegmentationLoss(v8DetectionLoss):
 
         # Cls loss
         # loss[1] = self.varifocal_loss(pred_scores, target_scores, target_labels) / target_scores_sum  # VFL way
-        #loss[2] = self.bce(pred_scores, target_scores.to(dtype)).sum() / target_scores_sum  # BCE
-        loss[2] = self.vfl(pred_scores, target_scores.to(dtype)).sum() / target_scores_sum
+        loss[2] = self.bce(pred_scores, target_scores.to(dtype)).sum() / target_scores_sum  # BCE
 
         if fg_mask.sum():
             # Bbox loss
@@ -657,8 +639,7 @@ class v8PoseLoss(v8DetectionLoss):
 
         # Cls loss
         # loss[1] = self.varifocal_loss(pred_scores, target_scores, target_labels) / target_scores_sum  # VFL way
-        #loss[3] = self.bce(pred_scores, target_scores.to(dtype)).sum() / target_scores_sum  # BCE
-        loss[3] = self.vfl(pred_scores, target_scores.to(dtype)).sum() / target_scores_sum
+        loss[3] = self.bce(pred_scores, target_scores.to(dtype)).sum() / target_scores_sum  # BCE
 
         # Bbox loss
         if fg_mask.sum():
@@ -856,8 +837,7 @@ class v8OBBLoss(v8DetectionLoss):
 
         # Cls loss
         # loss[1] = self.varifocal_loss(pred_scores, target_scores, target_labels) / target_scores_sum  # VFL way
-        #loss[1] = self.bce(pred_scores, target_scores.to(dtype)).sum() / target_scores_sum  # BCE
-        loss[1] = self.vfl(pred_scores, target_scores.to(dtype)).sum() / target_scores_sum
+        loss[1] = self.bce(pred_scores, target_scores.to(dtype)).sum() / target_scores_sum  # BCE
 
         # Bbox loss
         if fg_mask.sum():
